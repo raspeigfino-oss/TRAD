@@ -2,8 +2,7 @@
   "name": "tradion",
   "version": "1.0.0",
   "private": true,
-  "scripts": {
-    "dev": "next dev",
+  "scripts": {"postbuild": "prisma db push && tsx prisma/seed.ts",    "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
