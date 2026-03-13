@@ -1,0 +1,240 @@
+// prisma/schema.prisma
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  BLOCKED
+  PENDING
+}
+
+enum CycleStatus {
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
+enum DepositStatus {
+  PENDING
+  CONFIRMED
+  REJECTED
+}
+
+enum WithdrawalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum RewardStatus {
+  PENDING
+  CLAIMED
+}
+
+enum SignalCodeStatus {
+  ACTIVE
+  DISABLED
+  EXPIRED
+}
+
+enum BalanceHistoryType {
+  DEPOSIT
+  WITHDRAWAL
+  SIGNAL_GAIN
+  REWARD_CLAIMED
+  BONUS
+  FEE
+}
+
+enum AdminActionType {
+  BLOCK_USER
+  UNBLOCK_USER
+  DELETE_USER
+  ASSIGN_REWARD
+  CREATE_SIGNAL
+  APPROVE_WITHDRAWAL
+  REJECT_WITHDRAWAL
+}
+
+model User {
+  id           String     @id @default(cuid())
+  email        String     @unique
+  passwordHash String
+  role         Role       @default(USER)
+  status       UserStatus @default(ACTIVE)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  profile          Profile?
+  investmentCycles InvestmentCycle[]
+  deposits         Deposit[]
+  withdrawals      Withdrawal[]
+  pendingRewards   PendingReward[]
+  signalRedemptions SignalRedemption[]
+  balanceHistory   BalanceHistory[]
+  teamAsChild      TeamRelation[]     @relation("ChildRelations")
+  teamAsSponsor    TeamRelation[]     @relation("SponsorRelations")
+  adminActions     AdminAction[]      @relation("AdminActions")
+  targetedActions  AdminAction[]      @relation("TargetedActions")
+}
+
+model Profile {
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  publicUserId String   @unique
+  referralCode String   @unique
+  referralLink String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model TeamRelation {
+  id           String   @id @default(cuid())
+  sponsorUserId String
+  childUserId   String
+  level         Int      // 1 = direct, 2 = indirect, etc.
+  createdAt    DateTime @default(now())
+
+  sponsor User @relation("SponsorRelations", fields: [sponsorUserId], references: [id], onDelete: Cascade)
+  child   User @relation("ChildRelations",   fields: [childUserId],   references: [id], onDelete: Cascade)
+
+  @@unique([sponsorUserId, childUserId])
+  @@index([sponsorUserId])
+  @@index([childUserId])
+}
+
+model InvestmentCycle {
+  id             String      @id @default(cuid())
+  userId         String
+  initialCapital Float
+  currentCapital Float
+  startedAt      DateTime    @default(now())
+  endsAt         DateTime
+  status         CycleStatus @default(ACTIVE)
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Deposit {
+  id        String        @id @default(cuid())
+  userId    String
+  amount    Float
+  network   String        // TRC20 | BEP20
+  txHash    String?
+  status    DepositStatus @default(PENDING)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Withdrawal {
+  id                String           @id @default(cuid())
+  userId            String
+  requestedAmount   Float
+  feeAmount         Float            @default(0)
+  finalAmount       Float
+  walletAddress     String
+  network           String
+  isEarlyWithdrawal Boolean          @default(false)
+  status            WithdrawalStatus @default(PENDING)
+  adminNote         String?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model PendingReward {
+  id        String       @id @default(cuid())
+  userId    String
+  amount    Float
+  reason    String
+  status    RewardStatus @default(PENDING)
+  createdAt DateTime     @default(now())
+  claimedAt DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model SignalCode {
+  id           String          @id @default(cuid())
+  code         String          @unique
+  rewardType   String          @default("PERCENTAGE") // PERCENTAGE | FIXED
+  rewardValue  Float
+  expiresAt    DateTime?
+  maxUses      Int?
+  currentUses  Int             @default(0)
+  status       SignalCodeStatus @default(ACTIVE)
+  telegramSent Boolean         @default(false)
+  telegramMsgId String?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  redemptions SignalRedemption[]
+}
+
+model SignalRedemption {
+  id            String   @id @default(cuid())
+  userId        String
+  signalCodeId  String
+  rewardApplied Float
+  redeemedAt    DateTime @default(now())
+
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  signalCode SignalCode @relation(fields: [signalCodeId], references: [id])
+
+  @@unique([userId, signalCodeId])
+  @@index([userId])
+}
+
+model BalanceHistory {
+  id          String             @id @default(cuid())
+  userId      String
+  type        BalanceHistoryType
+  amount      Float
+  description String
+  createdAt   DateTime           @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model AdminAction {
+  id           String          @id @default(cuid())
+  adminUserId  String
+  actionType   AdminActionType
+  targetUserId String?
+  metadata     Json?
+  createdAt    DateTime        @default(now())
+
+  admin  User  @relation("AdminActions",   fields: [adminUserId],  references: [id])
+  target User? @relation("TargetedActions", fields: [targetUserId], references: [id])
+
+  @@index([adminUserId])
+}
